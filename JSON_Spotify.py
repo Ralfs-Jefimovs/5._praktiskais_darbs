@@ -1,97 +1,72 @@
-import requests
+import spotipy
+from spotipy.oauth2 import SpotifyOAuth
 import json
-from urllib.parse import urlencode
 
-# def get_spotify_access_token(client_id, client_secret):
-#     url = "https://accounts.spotify.com/api/token"
-#     headers = {
-#         "Content-Type": "application/x-www-form-urlencoded"
-#     }
-#     data = {
-#         "grant_type": "client_credentials"
-#     }
-#     response = requests.post(url, headers=headers, data=data, auth=(client_id, client_secret))
-#     response.raise_for_status()
-#     return response.json()["access_token"]
+# Spotify API credentials
+CLIENT_ID = "d847e720143541b780f3ace76ddc0a46"
+CLIENT_SECRET = "229762102f4e408fa97fee06c1b21e10"
+REDIRECT_URI = "https://oauth.pstmn.io/v1/callback"
 
-# def get_authorization_url(client_id, redirect_uri, scope):
-#     url = "https://accounts.spotify.com/authorize"
-#     params = {
-#         "client_id": client_id,
-#         "response_type": "code",
-#         "redirect_uri": redirect_uri,
-#         "scope": scope
-#     }
-#     return f"{url}?{urlencode(params)}"
+# Initialize SpotifyOAuth with updated scopes
+try:
+    auth_manager = SpotifyOAuth(
+        client_id=CLIENT_ID,
+        client_secret=CLIENT_SECRET,
+        redirect_uri=REDIRECT_URI,
+        scope="user-top-read playlist-modify-private",  # Added required scope
+        show_dialog=True  # Force authentication dialog
+    )
 
-# def get_access_token_with_auth_code(client_id, client_secret, code, redirect_uri):
-#     url = "https://accounts.spotify.com/api/token"
-#     headers = {
-#         "Content-Type": "application/x-www-form-urlencoded"
-#     }
-#     data = {
-#         "grant_type": "authorization_code",
-#         "code": code,
-#         "redirect_uri": redirect_uri
-#     }
-#     response = requests.post(url, headers=headers, data=data, auth=(client_id, client_secret))
-#     response.raise_for_status()
-#     return response.json()["access_token"]
+    # Retrieve and validate the access token
+    token_info = auth_manager.get_access_token()
+    access_token = token_info["access_token"]  # Extract the access token string
+    print(json.dumps({"access_token": access_token}, indent=4))
 
-# def get_user_profile(access_token):
-#     url = "https://api.spotify.com/v1/me"
-#     headers = {
-#         "Authorization": f"Bearer {access_token}"
-#     }
-#     response = requests.get(url, headers=headers)
-#     response.raise_for_status()
-#     return response.json()
+except Exception as e:
+    print(json.dumps({"error": str(e)}, indent=4))
+    exit()
 
-# def get_artist_details(access_token, artist_id):
-#     url = f"https://api.spotify.com/v1/artists/{artist_id}"
-#     headers = {
-#         "Authorization": f"Bearer {access_token}"
-#     }
-#     response = requests.get(url, headers=headers)
-#     response.raise_for_status()
-#     return response.json()
+try:
+    # Initialize Spotify client with the access token
+    sp = spotipy.Spotify(auth=access_token)
 
-# CLIENT_ID = "d847e720143541b780f3ace76ddc0a46"
-# CLIENT_SECRET = "229762102f4e408fa97fee06c1b21e10"
-# REDIRECT_URI = "https://oauth.pstmn.io/v1/callback" 
-# SCOPE = "user-read-private user-read-email"
+    # Fetch user's top tracks
+    top_tracks = sp.current_user_top_tracks(limit=10, time_range='short_term')
+    if not top_tracks['items']:
+        print(json.dumps({"error": "No top tracks found for the user."}, indent=4))
+        exit()
 
-if __name__ == "__main__":
-    # Simple Spotify API call to fetch track details
-    CLIENT_ID = "d847e720143541b780f3ace76ddc0a46"
-    CLIENT_SECRET = "229762102f4e408fa97fee06c1b21e10"
-    
-    # Step 1: Get an access token using client credentials
-    url = "https://accounts.spotify.com/api/token"
-    headers = {
-        "Content-Type": "application/x-www-form-urlencoded"
-    }
-    data = {
-        "grant_type": "client_credentials"
-    }
-    response = requests.post(url, headers=headers, data=data, auth=(CLIENT_ID, CLIENT_SECRET))
-    response.raise_for_status()
-    access_token = response.json()["access_token"]
-    
-    # Step 2: Use the access token to fetch track details
-    track_id = "3n3Ppam7vgaVa1iaRUc9Lp"  # Example: "Mr. Brightside" by The Killers
-    track_url = f"https://api.spotify.com/v1/tracks/{track_id}"
-    track_headers = {
-        "Authorization": f"Bearer {access_token}"
-    }
-    track_response = requests.get(track_url, headers=track_headers)
-    track_response.raise_for_status()
-    track_details = track_response.json()
-    
-    # Step 3: Remove "available_markets" from the track details
-    if "available_markets" in track_details:
-        del track_details["available_markets"]
-    
-    # Step 4: Print the filtered track details
-    print(json.dumps(track_details, indent=4))
+    # Format and display the top tracks
+    track_ids = [track["id"] for track in top_tracks["items"]]
+    user_top_tracks = [
+        {
+            "name": track["name"],
+            "artist": ", ".join(artist["name"] for artist in track["artists"]),
+            "album": track["album"]["name"],
+            "popularity": track["popularity"]
+        }
+        for track in top_tracks["items"]
+    ]
 
+    # Debugging: Print top tracks
+    print(f"Top Tracks: {json.dumps(user_top_tracks, indent=4)}")
+
+    # Create a new playlist
+    user_id = sp.me()["id"]  # Get the current user's Spotify ID
+    playlist_name = "My Top 10 Tracks"
+    playlist_description = "A playlist of my top 10 tracks created using Spotify API"
+    playlist = sp.user_playlist_create(
+        user=user_id,
+        name=playlist_name,
+        public=False,
+        description=playlist_description
+    )
+    playlist_id = playlist["id"]
+    print(f"Playlist '{playlist_name}' created with ID: {playlist_id}")
+
+    # Add top tracks to the playlist
+    sp.playlist_add_items(playlist_id, track_ids)
+    print(f"Added {len(track_ids)} tracks to the playlist '{playlist_name}'.")
+
+except Exception as e:
+    print(json.dumps({"error": str(e)}, indent=4))
